@@ -13,7 +13,7 @@ func main() {
 		panic(err)
 	}
 
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 10; i++ {
 		page := sequentialstorage.NewPage([]byte(fmt.Sprintf("om-%v", i)), []byte(fmt.Sprintf("nama shivayaa - %v", i)))
 		err = d.Set(page)
 		if err != nil {
@@ -25,7 +25,14 @@ func main() {
 	if err != nil {
 		fmt.Println("no value found")
 	}
-	fmt.Print(val)
+	fmt.Println(val)
+
+	val, err = d.Get("om-7")
+	if err != nil {
+		fmt.Println("no value found")
+	}
+
+	fmt.Println(val)
 }
 
 func testMMAP() {

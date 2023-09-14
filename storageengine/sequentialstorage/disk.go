@@ -3,7 +3,6 @@ package sequentialstorage
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"os"
 	"syscall"
 )
@@ -97,7 +96,6 @@ func (d *disk) increaseMMAPSize(totalPages int) error {
 // TODO: to handle concurrency and durability
 func (d *disk) Set(p *page) error {
 	if d.vmem.currentOffsetInPages+1 >= d.vmem.sizeInPages {
-		fmt.Print("increasing size \n")
 		err := d.increaseFileSize(d.vmem.sizeInPages + 1)
 		if err != nil {
 			return err
@@ -112,7 +110,6 @@ func (d *disk) Set(p *page) error {
 
 	//copy(d.vmem.data[d.vmem.currentIncreaseIndex][d.vmem.currentOffsetInBytes:], va)
 	copy(d.vmem.freeData[d.vmem.currentOffsetInBytes:], va)
-	fmt.Print("copying done \n")
 	d.vmem.currentOffsetInBytes += 4000
 	d.vmem.currentOffsetInPages += 1
 	return nil
@@ -129,18 +126,12 @@ func (d *disk) Get(input string) (string, error) {
 		dataKeyIdxEnd := lenKeyIdxEnd + int(size)
 		key := d.vmem.freeData[dataKeyIdxStart:dataKeyIdxEnd]
 
-		fmt.Println(string(key))
-		fmt.Printf("start - %v , end %v", dataKeyIdxStart, dataKeyIdxEnd)
-		fmt.Println(string(input))
 		if string(key) == input {
-			valLenIdxStart := 605
-			valLenIdxEnd := 605 + 2
-			fmt.Println("value")
-			fmt.Printf("start - %v , end %v \n", valLenIdxStart, valLenIdxEnd)
+			valLenIdxStart := 4000*i + 602
+			valLenIdxEnd := valLenIdxStart + 2
 			c := make([]byte, 2)
 			copy(c, d.vmem.freeData[valLenIdxStart:valLenIdxEnd])
 			size = binary.LittleEndian.Uint16(c)
-			fmt.Printf("value size is %v %v", size, c)
 			dataValueIdxStart := valLenIdxEnd
 			dataValueIdxEnd := valLenIdxEnd + int(size)
 
