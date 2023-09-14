@@ -13,13 +13,17 @@ func main() {
 		panic(err)
 	}
 
-	page := sequentialstorage.NewPage([]byte("om"), []byte("nama shivayaa"))
+	for i := 0; i < 2; i++ {
+		page := sequentialstorage.NewPage([]byte(fmt.Sprintf("om-%v", i)), []byte("nama shivayaa"))
 
-	err = d.Set(page)
-	if err != nil {
-		panic(err)
+		err = d.Set(page)
+		if err != nil {
+			panic(err)
+		}
 	}
 
+	fmt.Print("asdsad")
+	fmt.Print(d.Get("om"))
 }
 
 func testMMAP() {
