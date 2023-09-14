@@ -2,6 +2,7 @@ package sequentialstorage
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"syscall"
@@ -52,7 +53,7 @@ func NewDisk() (*disk, error) {
 			currentOffsetInBytes: 0,
 			currentOffsetInPages: 0,
 			currentIncreaseIndex: 0,
-			sizeInPages:          len(vmem) / PAGE_SIZE,
+			sizeInPages:          len(vmem) / (PAGE_SIZE * 1000),
 		},
 	}, nil
 }
@@ -62,11 +63,11 @@ func (d *disk) increaseFileSize(totalPages int) error {
 	if err != nil {
 		return err
 	}
-	if int(fi.Size()/PAGE_SIZE) > totalPages {
+	if int(fi.Size()/(PAGE_SIZE*1000)) > totalPages {
 		return nil
 	}
 
-	err = d.file.Truncate(int64(totalPages*PAGE_SIZE*1000) * 10)
+	err = d.file.Truncate(int64(totalPages*PAGE_SIZE*1000*10) * 10)
 	if err != nil {
 		return err
 	}
@@ -75,17 +76,18 @@ func (d *disk) increaseFileSize(totalPages int) error {
 
 func (d *disk) increaseMMAPSize(totalPages int) error {
 
-	if int(d.vmem.sizeInByteCount/PAGE_SIZE) > totalPages {
+	if int(d.vmem.sizeInByteCount/(PAGE_SIZE*1000)) > totalPages {
 		return nil
 	}
 
 	//check the file resizing is same as mmap resiszing
-	newMem, err := syscall.Mmap(int(d.fd), int64(d.vmem.sizeInByteCount), d.vmem.sizeInByteCount+PAGE_SIZE*1000*10, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+	newMem, err := syscall.Mmap(int(d.fd), 0, d.vmem.sizeInByteCount+PAGE_SIZE*1000*10, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
 	if err != nil {
 		return err
 	}
 
 	d.vmem.data = append(d.vmem.data, newMem)
+	d.vmem.freeData = append(d.vmem.freeData, newMem...)
 	d.vmem.sizeInByteCount += len(newMem)
 	d.vmem.sizeInPages += 10
 	d.vmem.currentIncreaseIndex += 1
@@ -94,7 +96,7 @@ func (d *disk) increaseMMAPSize(totalPages int) error {
 
 // TODO: to handle concurrency and durability
 func (d *disk) Set(p *page) error {
-	if d.vmem.currentOffsetInPages+1 > d.vmem.sizeInPages {
+	if d.vmem.currentOffsetInPages+1 >= d.vmem.sizeInPages {
 		fmt.Print("increasing size \n")
 		err := d.increaseFileSize(d.vmem.sizeInPages + 1)
 		if err != nil {
@@ -105,8 +107,9 @@ func (d *disk) Set(p *page) error {
 			return err
 		}
 	}
-	fmt.Print("copyign file \n")
+
 	va := p.Serialise()
+
 	//copy(d.vmem.data[d.vmem.currentIncreaseIndex][d.vmem.currentOffsetInBytes:], va)
 	copy(d.vmem.freeData[d.vmem.currentOffsetInBytes:], va)
 	fmt.Print("copying done \n")
@@ -115,8 +118,8 @@ func (d *disk) Set(p *page) error {
 	return nil
 }
 
-func (d *disk) Get(input string) string {
-	for i := 0; i < d.vmem.sizeInPages; i++ {
+func (d *disk) Get(input string) (string, error) {
+	for i := 0; i < d.vmem.currentOffsetInPages; i++ {
 		lenKeyIdxStart := 4000*i + 100
 		lenKeyIdxEnd := lenKeyIdxStart + 2
 		b := make([]byte, 2)
@@ -125,10 +128,25 @@ func (d *disk) Get(input string) string {
 		dataKeyIdxStart := lenKeyIdxEnd
 		dataKeyIdxEnd := lenKeyIdxEnd + int(size)
 		key := d.vmem.freeData[dataKeyIdxStart:dataKeyIdxEnd]
+
 		fmt.Println(string(key))
+		fmt.Printf("start - %v , end %v", dataKeyIdxStart, dataKeyIdxEnd)
+		fmt.Println(string(input))
 		if string(key) == input {
-			return string(key)
+			valLenIdxStart := 605
+			valLenIdxEnd := 605 + 2
+			fmt.Println("value")
+			fmt.Printf("start - %v , end %v \n", valLenIdxStart, valLenIdxEnd)
+			c := make([]byte, 2)
+			copy(c, d.vmem.freeData[valLenIdxStart:valLenIdxEnd])
+			size = binary.LittleEndian.Uint16(c)
+			fmt.Printf("value size is %v %v", size, c)
+			dataValueIdxStart := valLenIdxEnd
+			dataValueIdxEnd := valLenIdxEnd + int(size)
+
+			value := d.vmem.freeData[dataValueIdxStart:dataValueIdxEnd]
+			return string(value), nil
 		}
 	}
-	return ""
+	return "", errors.New("no value present")
 }

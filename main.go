@@ -14,35 +14,37 @@ func main() {
 	}
 
 	for i := 0; i < 2; i++ {
-		page := sequentialstorage.NewPage([]byte(fmt.Sprintf("om-%v", i)), []byte("nama shivayaa"))
-
+		page := sequentialstorage.NewPage([]byte(fmt.Sprintf("om-%v", i)), []byte(fmt.Sprintf("nama shivayaa - %v", i)))
 		err = d.Set(page)
 		if err != nil {
 			panic(err)
 		}
 	}
 
-	fmt.Print("asdsad")
-	fmt.Print(d.Get("om"))
+	val, err := d.Get("om-0")
+	if err != nil {
+		fmt.Println("no value found")
+	}
+	fmt.Print(val)
 }
 
 func testMMAP() {
-	file, err := os.OpenFile("./data.txt", os.O_RDWR|os.O_CREATE, 777)
+	file, err := os.Open("./data2.txt")
 	if err != nil {
 		panic(err)
 	}
-	fileMaxLength := 4 << (10) // 2 GB file is max size im keeping
+	fileMaxLength := 8000 // 2 GB file is max size im keeping
 	if err := file.Truncate(int64(fileMaxLength)); err != nil {
 		fmt.Println("Error truncating file:", err)
 		file.Close()
 		return
 	}
-
-	fd := file.Fd()
-	vmem, err := syscall.Mmap(int(fd), 0, fileMaxLength, syscall.PROT_WRITE|syscall.PROT_READ, syscall.MAP_SHARED)
+	file.Sync()
+	vmem, err := syscall.Mmap(int(file.Fd()), 1, 8001, syscall.PROT_WRITE|syscall.PROT_READ, syscall.MAP_SHARED)
 	if err != nil {
 		panic(err)
 	}
+
 	c := "value"
 	copy(vmem[:len(c)], []byte(c))
 	if err = file.Sync(); err != nil {

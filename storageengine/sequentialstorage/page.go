@@ -3,6 +3,7 @@ package sequentialstorage
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 )
 
 // assuming sizeInByteCount is 4KB
@@ -26,6 +27,7 @@ func NewPage(key []byte, value []byte) *page {
 
 	paddedKey := make([]byte, 500)
 	copy(paddedKey[:len(key)], key)
+
 	paddedVal := make([]byte, 3396)
 	copy(paddedVal[:len(value)], value)
 
@@ -68,9 +70,12 @@ func (p *page) Key() ([]byte, string) {
 }
 
 func (p *page) Value() ([]byte, string) {
-	return p.key, string(p.value)
+	return p.value, string(p.value)
 }
 
 func (p *page) Serialise() []byte {
-	return append(append(append(append(p.padding, p.lenKey...), p.key...), p.lenVal...), p.value...)
+	a := append(append(append(append(p.padding, p.lenKey...), p.key...), p.lenVal...), p.value...)
+	fmt.Println("asd")
+	fmt.Println(a)
+	return a
 }
