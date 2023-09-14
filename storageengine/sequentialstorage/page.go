@@ -5,7 +5,7 @@ import (
 	"errors"
 )
 
-// assuming size is 4KB
+// assuming sizeInByteCount is 4KB
 type page struct {
 	padding []byte //100 byte
 	lenKey  []byte // 2byte
@@ -24,12 +24,17 @@ func NewPage(key []byte, value []byte) *page {
 	lenValue := make([]byte, 2)
 	binary.LittleEndian.PutUint16(lenValue, uint16(len(value)))
 
+	paddedKey := make([]byte, 500)
+	copy(paddedKey[:len(key)], key)
+	paddedVal := make([]byte, 3396)
+	copy(paddedVal[:len(value)], value)
+
 	return &page{
 		padding: paddingData,
 		lenKey:  lenKey,
-		key:     key,
+		key:     paddedKey,
 		lenVal:  lenValue,
-		value:   value,
+		value:   paddedVal,
 	}
 }
 
@@ -64,4 +69,8 @@ func (p *page) Key() ([]byte, string) {
 
 func (p *page) Value() ([]byte, string) {
 	return p.key, string(p.value)
+}
+
+func (p *page) Serialise() []byte {
+	return append(append(append(append(p.padding, p.lenKey...), p.key...), p.lenVal...), p.value...)
 }

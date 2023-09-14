@@ -2,11 +2,27 @@ package main
 
 import (
 	"fmt"
+	"lazy-kv-db/storageengine/sequentialstorage"
 	"os"
 	"syscall"
 )
 
 func main() {
+	d, err := sequentialstorage.NewDisk()
+	if err != nil {
+		panic(err)
+	}
+
+	page := sequentialstorage.NewPage([]byte("om"), []byte("nama shivayaa"))
+
+	err = d.Set(page)
+	if err != nil {
+		panic(err)
+	}
+
+}
+
+func testMMAP() {
 	file, err := os.OpenFile("./data.txt", os.O_RDWR|os.O_CREATE, 777)
 	if err != nil {
 		panic(err)
