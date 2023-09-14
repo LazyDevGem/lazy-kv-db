@@ -1,67 +1,73 @@
 package sequentialstorage
 
 import (
-	"encoding/binary"
-	"errors"
+	"os"
+	"syscall"
 )
 
-// assuming size is 4KB
-type page struct {
-	padding []byte //100 byte
-	lenKey  []byte // 2byte
-	key     []byte // depends
-	lenVal  []byte // 2byte
-	value   []byte // depends
+type disk struct {
+	file *os.File //file open
+	fd   int      // file descriptor
+	vmem mmap     //mmap
 }
 
-func NewPage(key []byte, value []byte) *page {
-	paddingData := make([]byte, 100)
-	binary.LittleEndian.PutUint16(paddingData, 0)
-
-	lenKey := make([]byte, 2)
-	binary.LittleEndian.PutUint16(lenKey, uint16(len(key)))
-
-	lenValue := make([]byte, 2)
-	binary.LittleEndian.PutUint16(lenValue, uint16(len(value)))
-
-	return &page{
-		padding: paddingData,
-		lenKey:  lenKey,
-		key:     key,
-		lenVal:  lenValue,
-		value:   value,
-	}
+type mmap struct {
+	data          [][]byte
+	size          int
+	currentOffset int
 }
 
-func (p *page) Valid() error {
-	if len(p.padding) != 100 {
-		return errors.New("wrong padding length")
+func NewDisk() (*disk, error) {
+	file, err := os.Open("./data")
+	if err != nil {
+		return nil, err
 	}
-	if len(p.lenVal) != 2 {
-		return errors.New("wrong key length")
+	fileMaxLength := 4 << (10 * 2) // starting size - 4mb
+	fd := file.Fd()
+	vmem, err := syscall.Mmap(int(fd), 0, fileMaxLength, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+	if err != nil {
+		return nil, err
 	}
-	if len(p.lenKey) != 2 {
-		return errors.New("wrong value length")
+	var chunk [][]byte
+	chunk = append(chunk, vmem)
+	return &disk{
+		fd: int(fd),
+		vmem: mmap{
+			size:          len(vmem),
+			data:          chunk,
+			currentOffset: 0,
+		},
+	}, nil
+}
+
+func (d *disk) increaseMMAPSize(totalPages int) error {
+	fi, err := d.file.Stat()
+	if err != nil {
+		return err
 	}
+	if int(fi.Size()/PAGE_SIZE) > totalPages {
+		return nil
+	}
+
+	err = d.file.Truncate(int64(totalPages * PAGE_SIZE * 1000))
+	if err != nil {
+		return err
+	}
+
+	newMem, err := syscall.Mmap(int(d.fd), 0, totalPages*PAGE_SIZE*1000, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+	if err != nil {
+		return err
+	}
+
+	d.vmem.data = append(d.vmem.data, newMem)
+	d.vmem.size += len(newMem)
 	return nil
 }
 
-func (p *page) getPadding() []byte {
-	return p.padding
+func (d *disk) Set(p *page) {
+
 }
 
-func (p *page) GetLenKey() ([]byte, uint16) {
-	return p.lenKey, binary.LittleEndian.Uint16(p.lenKey)
-}
+func Get() {
 
-func (p *page) GetLenVal() ([]byte, uint16) {
-	return p.lenVal, binary.LittleEndian.Uint16(p.lenVal)
-}
-
-func (p *page) Key() ([]byte, string) {
-	return p.key, string(p.key)
-}
-
-func (p *page) Value() ([]byte, string) {
-	return p.key, string(p.value)
 }
