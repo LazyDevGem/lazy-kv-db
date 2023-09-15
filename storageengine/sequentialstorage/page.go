@@ -24,10 +24,10 @@ func NewPage(key []byte, value []byte) *page {
 	lenValue := make([]byte, 2)
 	binary.LittleEndian.PutUint16(lenValue, uint16(len(value)))
 
-	paddedKey := make([]byte, 500)
+	paddedKey := make([]byte, 4280) // they sum upto 16384 which is byte size is mac
 	copy(paddedKey[:len(key)], key)
 
-	paddedVal := make([]byte, 3396)
+	paddedVal := make([]byte, 12000)
 	copy(paddedVal[:len(value)], value)
 
 	return &page{

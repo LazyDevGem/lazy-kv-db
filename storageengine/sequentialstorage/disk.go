@@ -3,16 +3,22 @@ package sequentialstorage
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
 	"syscall"
 )
 
 type disk struct {
-	file *os.File //file open
-	fd   int      // file descriptor
-	vmem mmap     //mmap
+	file        *os.File //file open
+	fd          int      // file descriptor
+	vmem        mmap     //mmap
+	fileDetails FileDetails
 }
 
+type FileDetails struct {
+	totalPages int
+	totalBytes int
+}
 type mmap struct {
 	data                 [][]byte
 	freeData             []byte
@@ -28,7 +34,7 @@ func NewDisk() (*disk, error) {
 	if err != nil {
 		return nil, err
 	}
-	fileMaxLength := 4000
+	fileMaxLength := 16384
 	fd := file.Fd()
 	vmem, err := syscall.Mmap(int(fd), 0, fileMaxLength, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
 	if err != nil {
@@ -46,13 +52,17 @@ func NewDisk() (*disk, error) {
 		fd:   int(fd),
 		file: file,
 		vmem: mmap{
-			sizeInByteCount:      len(vmem),
+			sizeInByteCount:      fileMaxLength,
 			data:                 chunk,
 			freeData:             freeChunk,
 			currentOffsetInBytes: 0,
 			currentOffsetInPages: 0,
 			currentIncreaseIndex: 0,
-			sizeInPages:          len(vmem) / (PAGE_SIZE * 1000),
+			sizeInPages:          fileMaxLength / (PAGE_SIZE),
+		},
+		fileDetails: FileDetails{
+			totalPages: fileMaxLength / (PAGE_SIZE),
+			totalBytes: fileMaxLength,
 		},
 	}, nil
 }
@@ -62,25 +72,32 @@ func (d *disk) increaseFileSize(totalPages int) error {
 	if err != nil {
 		return err
 	}
-	if int(fi.Size()/(PAGE_SIZE*1000)) > totalPages {
+	if int(fi.Size()/(PAGE_SIZE)) > totalPages {
+		fmt.Println("not increasing", totalPages, fi.Size()/(PAGE_SIZE))
 		return nil
 	}
 
-	err = d.file.Truncate(int64(totalPages*PAGE_SIZE*1000*10) * 10)
+	err = d.file.Truncate(int64(totalPages*PAGE_SIZE*100) * 10)
 	if err != nil {
 		return err
 	}
+	d.fileDetails.totalBytes = totalPages * PAGE_SIZE * 10 * 10
+	d.fileDetails.totalPages = totalPages * 10 * 10
 	return nil
 }
 
 func (d *disk) increaseMMAPSize(totalPages int) error {
 
-	if int(d.vmem.sizeInByteCount/(PAGE_SIZE*1000)) > totalPages {
+	if int(d.vmem.sizeInByteCount/(PAGE_SIZE)) > totalPages {
 		return nil
 	}
+	//fi, _ := d.file.Stat()
+	//fmt.Println("filesize", fi.Size())
+	//fmt.Println("mmap next size", d.vmem.sizeInByteCount+PAGE_SIZE*1000*10)
 
 	//check the file resizing is same as mmap resiszing
-	newMem, err := syscall.Mmap(int(d.fd), 0, d.vmem.sizeInByteCount+PAGE_SIZE*1000*10, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+
+	newMem, err := syscall.Mmap(int(d.fd), int64(d.vmem.sizeInByteCount), PAGE_SIZE*10, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
 	if err != nil {
 		return err
 	}
@@ -93,14 +110,23 @@ func (d *disk) increaseMMAPSize(totalPages int) error {
 	return nil
 }
 
+func getNextOffset(val int) {
+	// 16384 is the single page size
+
+}
+
 // TODO: to handle concurrency and durability
 func (d *disk) Set(p *page) error {
-	if d.vmem.currentOffsetInPages+1 >= d.vmem.sizeInPages {
+	fmt.Println("vmem page offset", d.vmem.currentOffsetInPages, "vmem byte offset", d.vmem.currentOffsetInBytes, "vmem total size in pages", d.vmem.sizeInPages, "vmem total size in bytes", d.vmem.sizeInByteCount, "file total size pages", d.fileDetails.totalPages, "file total size bytes", d.fileDetails.totalBytes)
+	if d.vmem.currentOffsetInPages+1 >= d.fileDetails.totalPages {
 		err := d.increaseFileSize(d.vmem.sizeInPages + 1)
 		if err != nil {
 			return err
 		}
-		err = d.increaseMMAPSize(d.vmem.sizeInPages + 1)
+	}
+
+	if d.vmem.currentOffsetInPages+1 >= d.vmem.sizeInPages {
+		err := d.increaseMMAPSize(d.vmem.sizeInPages + 1)
 		if err != nil {
 			return err
 		}
@@ -110,14 +136,14 @@ func (d *disk) Set(p *page) error {
 
 	//copy(d.vmem.data[d.vmem.currentIncreaseIndex][d.vmem.currentOffsetInBytes:], va)
 	copy(d.vmem.freeData[d.vmem.currentOffsetInBytes:], va)
-	d.vmem.currentOffsetInBytes += 4000
+	d.vmem.currentOffsetInBytes += PAGE_SIZE
 	d.vmem.currentOffsetInPages += 1
 	return nil
 }
 
 func (d *disk) Get(input string) (string, error) {
 	for i := 0; i < d.vmem.currentOffsetInPages; i++ {
-		lenKeyIdxStart := 4000*i + 100
+		lenKeyIdxStart := 16384*i + 100
 		lenKeyIdxEnd := lenKeyIdxStart + 2
 		b := make([]byte, 2)
 		copy(b, d.vmem.freeData[lenKeyIdxStart:lenKeyIdxEnd])
@@ -125,9 +151,8 @@ func (d *disk) Get(input string) (string, error) {
 		dataKeyIdxStart := lenKeyIdxEnd
 		dataKeyIdxEnd := lenKeyIdxEnd + int(size)
 		key := d.vmem.freeData[dataKeyIdxStart:dataKeyIdxEnd]
-
 		if string(key) == input {
-			valLenIdxStart := 4000*i + 602
+			valLenIdxStart := 16384*i + 4382
 			valLenIdxEnd := valLenIdxStart + 2
 			c := make([]byte, 2)
 			copy(c, d.vmem.freeData[valLenIdxStart:valLenIdxEnd])
