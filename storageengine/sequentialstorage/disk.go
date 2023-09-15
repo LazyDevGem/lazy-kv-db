@@ -2,16 +2,25 @@ package sequentialstorage
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"syscall"
 )
 
+type Metadata struct {
+	CurrentOffsetInBytes int `json:"current_offset_in_bytes"`
+	CurrentIncreaseIndex int `json:"current_increase_index"`
+	SizeInByteCount      int `json:"size_in_byte_count"`
+}
+
 type disk struct {
 	file        *os.File //file open
-	fd          int      // file descriptor
-	vmem        mmap     //mmap
+	metaFile    *os.File
+	fd          int  // file descriptor
+	vmem        mmap //mmap
 	fileDetails FileDetails
 }
 
@@ -30,41 +39,104 @@ type mmap struct {
 }
 
 func NewDisk() (*disk, error) {
-	file, err := os.OpenFile("./data.txt", os.O_RDWR|os.O_CREATE, 777)
-	if err != nil {
-		return nil, err
+	_, error := os.Stat("./data.txt")
+	if os.IsNotExist(error) {
+		file, err := os.OpenFile("./data.txt", os.O_RDWR|os.O_CREATE, 777)
+		if err != nil {
+			return nil, err
+		}
+
+		metafile, err := os.OpenFile("./metadata.json", os.O_RDWR|os.O_CREATE, 777)
+		if err != nil {
+			return nil, err
+		}
+
+		fileMaxLength := 16384
+		fd := file.Fd()
+		vmem, err := syscall.Mmap(int(fd), 0, fileMaxLength, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+		if err != nil {
+			return nil, err
+		}
+		err = file.Truncate(int64(fileMaxLength))
+		if err != nil {
+			panic(err)
+		}
+		var chunk [][]byte
+		freeChunk := vmem
+		chunk = append(chunk, vmem)
+		return &disk{
+			fd:       int(fd),
+			file:     file,
+			metaFile: metafile,
+			vmem: mmap{
+				sizeInByteCount:      fileMaxLength,
+				data:                 chunk,
+				freeData:             freeChunk,
+				currentOffsetInBytes: 0,
+				currentOffsetInPages: 0,
+				currentIncreaseIndex: 0,
+				sizeInPages:          fileMaxLength / (PAGE_SIZE),
+			},
+			fileDetails: FileDetails{
+				totalPages: fileMaxLength / (PAGE_SIZE),
+				totalBytes: fileMaxLength,
+			},
+		}, nil
+	} else {
+		fmt.Println("hi")
+		file, err := os.OpenFile("./data.txt", os.O_RDWR|os.O_CREATE, 777)
+		if err != nil {
+			return nil, err
+		}
+		metadataFile, err := os.OpenFile("./metadata.json", os.O_RDWR|os.O_CREATE, 777)
+		if err != nil {
+			return nil, err
+		}
+		stat, err := file.Stat()
+		if err != nil {
+			return nil, err
+		}
+
+		fileByt, err := ioutil.ReadAll(metadataFile)
+		if err != nil {
+			return nil, err
+		}
+		var metadata Metadata
+		err = json.Unmarshal(fileByt, &metadata)
+		if err != nil {
+			return nil, err
+		}
+
+		fd := file.Fd()
+
+		vmem, err := syscall.Mmap(int(fd), 0, metadata.SizeInByteCount, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+		if err != nil {
+			return nil, err
+		}
+
+		var chunk [][]byte
+		freeChunk := vmem
+		chunk = append(chunk, vmem)
+		fmt.Println("size of freechunk", len(freeChunk), "size of metadataa", metadata.SizeInByteCount)
+		return &disk{
+			fd:       int(fd),
+			file:     file,
+			metaFile: metadataFile,
+			vmem: mmap{
+				sizeInByteCount:      metadata.SizeInByteCount,
+				data:                 chunk,
+				freeData:             freeChunk,
+				currentOffsetInBytes: metadata.CurrentOffsetInBytes,
+				currentOffsetInPages: metadata.CurrentOffsetInBytes / PAGE_SIZE,
+				currentIncreaseIndex: metadata.CurrentIncreaseIndex,
+				sizeInPages:          metadata.SizeInByteCount / (PAGE_SIZE),
+			},
+			fileDetails: FileDetails{
+				totalPages: int(stat.Size() / (PAGE_SIZE)),
+				totalBytes: int(stat.Size()),
+			},
+		}, nil
 	}
-	fileMaxLength := 16384
-	fd := file.Fd()
-	vmem, err := syscall.Mmap(int(fd), 0, fileMaxLength, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
-	if err != nil {
-		return nil, err
-	}
-	err = file.Truncate(int64(fileMaxLength))
-	if err != nil {
-		panic(err)
-	}
-	var chunk [][]byte
-	var freeChunk []byte
-	chunk = append(chunk, vmem)
-	freeChunk = append(freeChunk, vmem...)
-	return &disk{
-		fd:   int(fd),
-		file: file,
-		vmem: mmap{
-			sizeInByteCount:      fileMaxLength,
-			data:                 chunk,
-			freeData:             freeChunk,
-			currentOffsetInBytes: 0,
-			currentOffsetInPages: 0,
-			currentIncreaseIndex: 0,
-			sizeInPages:          fileMaxLength / (PAGE_SIZE),
-		},
-		fileDetails: FileDetails{
-			totalPages: fileMaxLength / (PAGE_SIZE),
-			totalBytes: fileMaxLength,
-		},
-	}, nil
 }
 
 func (d *disk) increaseFileSize(totalPages int) error {
@@ -91,20 +163,15 @@ func (d *disk) increaseMMAPSize(totalPages int) error {
 	if int(d.vmem.sizeInByteCount/(PAGE_SIZE)) > totalPages {
 		return nil
 	}
-	//fi, _ := d.file.Stat()
-	//fmt.Println("filesize", fi.Size())
-	//fmt.Println("mmap next size", d.vmem.sizeInByteCount+PAGE_SIZE*1000*10)
-
-	//check the file resizing is same as mmap resiszing
-
 	newMem, err := syscall.Mmap(int(d.fd), int64(d.vmem.sizeInByteCount), PAGE_SIZE*10, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
 	if err != nil {
 		return err
 	}
 
 	d.vmem.data = append(d.vmem.data, newMem)
+	
 	d.vmem.freeData = append(d.vmem.freeData, newMem...)
-	d.vmem.sizeInByteCount += len(newMem)
+	d.vmem.sizeInByteCount += PAGE_SIZE * 10
 	d.vmem.sizeInPages += 10
 	d.vmem.currentIncreaseIndex += 1
 	return nil
@@ -138,6 +205,24 @@ func (d *disk) Set(p *page) error {
 	copy(d.vmem.freeData[d.vmem.currentOffsetInBytes:], va)
 	d.vmem.currentOffsetInBytes += PAGE_SIZE
 	d.vmem.currentOffsetInPages += 1
+
+	meta := Metadata{
+		CurrentOffsetInBytes: d.vmem.currentOffsetInBytes,
+		CurrentIncreaseIndex: d.vmem.currentIncreaseIndex,
+		SizeInByteCount:      d.vmem.sizeInByteCount,
+	}
+
+	err := d.file.Sync()
+	if err != nil {
+		return err
+	}
+
+	val, _ := json.Marshal(meta)
+	_, err = d.metaFile.WriteAt(val, 0)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -151,6 +236,7 @@ func (d *disk) Get(input string) (string, error) {
 		dataKeyIdxStart := lenKeyIdxEnd
 		dataKeyIdxEnd := lenKeyIdxEnd + int(size)
 		key := d.vmem.freeData[dataKeyIdxStart:dataKeyIdxEnd]
+		fmt.Println("key", string(key), dataKeyIdxStart, lenKeyIdxStart, lenKeyIdxEnd)
 		if string(key) == input {
 			valLenIdxStart := 16384*i + 4382
 			valLenIdxEnd := valLenIdxStart + 2

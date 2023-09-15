@@ -12,15 +12,15 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
-	for i := 0; i < 500; i++ {
-		fmt.Println("set for ", i)
-		page := sequentialstorage.NewPage([]byte(fmt.Sprintf("om-%v", i)), []byte(fmt.Sprintf("nama shivayaa - %v", i)))
-		err = d.Set(page)
-		if err != nil {
-			panic(err)
-		}
-	}
+	//
+	//for i := 0; i < 1; i++ {
+	//	fmt.Println("set for ", i)
+	//	page := sequentialstorage.NewPage([]byte(fmt.Sprintf("om-%v", i)), []byte(fmt.Sprintf("nama shivayaa - %v", i)))
+	//	err = d.Set(page)
+	//	if err != nil {
+	//		panic(err)
+	//	}
+	//}
 
 	val, err := d.Get("om-0")
 	if err != nil {
@@ -38,7 +38,7 @@ func main() {
 
 func m2ain() {
 	fmt.Println(int64(syscall.Getpagesize()))
-	file, err := os.OpenFile("./data2.txt", os.O_RDWR|os.O_CREATE, 777)
+	file, err := os.OpenFile("./data.txt", os.O_RDWR|os.O_CREATE, 777)
 	a := make([]byte, 20)
 	if err != nil {
 		panic(err)
