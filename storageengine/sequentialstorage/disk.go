@@ -23,6 +23,7 @@ type disk struct {
 	fd          int  // file descriptor
 	vmem        mmap //mmap
 	fileDetails FileDetails
+	tombstoning bool
 }
 
 type FileDetails struct {
@@ -66,9 +67,10 @@ func NewDisk() (*disk, error) {
 		freeChunk := vmem
 		chunk = append(chunk, vmem)
 		return &disk{
-			fd:       int(fd),
-			file:     file,
-			metaFile: metafile,
+			fd:          int(fd),
+			tombstoning: true,
+			file:        file,
+			metaFile:    metafile,
 			vmem: mmap{
 				sizeInByteCount:      fileMaxLength,
 				data:                 chunk,
@@ -119,9 +121,10 @@ func NewDisk() (*disk, error) {
 		freeChunk := vmem
 		chunk = append(chunk, vmem)
 		return &disk{
-			fd:       int(fd),
-			file:     file,
-			metaFile: metadataFile,
+			fd:          int(fd),
+			file:        file,
+			tombstoning: true,
+			metaFile:    metadataFile,
 			vmem: mmap{
 				sizeInByteCount:      metadata.SizeInByteCount,
 				data:                 chunk,
@@ -189,10 +192,11 @@ func (d *disk) Set(p *page) error {
 	fmt.Println("vmem page offset", d.vmem.currentOffsetInPages, "vmem byte offset", d.vmem.currentOffsetInBytes, "vmem total size in pages", d.vmem.sizeInPages, "vmem total size in bytes", d.vmem.sizeInByteCount, "file total size pages", d.fileDetails.totalPages, "file total size bytes", d.fileDetails.totalBytes, "currentoffset index", d.vmem.currentIndexOffset, d.vmem.currentIncreaseIndex)
 	_, _, _, err := d.Get(string(p.key))
 	if err != nil {
-		if err.Error() == "no value present" {
+		if err.Error() != "no value present" {
 			return errors.New("key already exists")
 		}
 	}
+
 	if d.vmem.currentOffsetInPages+1 >= d.fileDetails.totalPages {
 		err := d.increaseFileSize(d.vmem.sizeInPages + 1)
 		if err != nil {
@@ -236,24 +240,35 @@ func (d *disk) Set(p *page) error {
 	return nil
 }
 
-// TODO: to handle concurrency and durability
+// TODO: to handle concurrency and durability if tombstoning, resizing disks have to take palce
 func (d *disk) Del(input string) error {
 	_, idx, startIndex, err := d.Get(input)
 	if err != nil {
 		return err
 	}
-	fmt.Println("deletion index", idx, startIndex)
-	values := d.vmem.data[idx][startIndex : startIndex+PAGE_SIZE]
-	for i, _ := range values {
-		values[i] = '0'
+	if !d.tombstoning {
+		fmt.Println("deletion index", idx, startIndex)
+		values := d.vmem.data[idx][startIndex : startIndex+PAGE_SIZE]
+		for i, _ := range values {
+			values[i] = '0'
+		}
+
+		err = d.file.Sync()
+		if err != nil {
+			return err
+		}
+
+		return nil
 	}
 
+	d.vmem.data[idx][startIndex] = TOMBSTONE
 	err = d.file.Sync()
 	if err != nil {
 		return err
 	}
 
 	return nil
+
 }
 
 // TODO: to handle isolation levels
@@ -280,6 +295,9 @@ func (d *disk) Get(input string) (string, int, int, error) {
 				dataValueIdxEnd := valLenIdxEnd + int(size)
 
 				value := d.vmem.data[idx][dataValueIdxStart:dataValueIdxEnd]
+				if d.vmem.data[idx][i] == TOMBSTONE {
+					continue
+				}
 				return string(value), idx, i, nil
 			}
 		}

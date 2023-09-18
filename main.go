@@ -21,8 +21,24 @@ func main() {
 	//		panic(err)
 	//	}
 	//}
+	page := sequentialstorage.NewPage([]byte("hello123"), []byte("world"))
+	err = d.Set(page)
+	if err != nil {
+		panic(err)
+	}
 
-	val, _, _, err := d.Get("wow")
+	val, _, _, err := d.Get("hello123")
+	if err != nil {
+		fmt.Println("no value found")
+	}
+	fmt.Println("dound !!!!!!!!!!!!", val)
+
+	err = d.Del("hello123")
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+
+	val, _, _, err = d.Get("hello123")
 	if err != nil {
 		fmt.Println("no value found")
 	}
