@@ -22,24 +22,18 @@ func main() {
 	//	}
 	//}
 
-	val, err := d.Get("wow")
+	val, _, _, err := d.Get("wow")
 	if err != nil {
 		fmt.Println("no value found")
 	}
 	fmt.Println("dound !!!!!!!!!!!!", val)
 
-	val, err = d.Get("om4-0")
-	if err != nil {
-		fmt.Println("no value found")
-	}
-	fmt.Println("dound !!!!!!!!!!!!", val)
+	//val,_,_, err := d.Get("wow")
+	//if err != nil {
+	//	fmt.Println("no value found")
+	//}
+	//fmt.Println("dound !!!!!!!!!!!!", val)
 
-	val, err = d.Get("om4-444")
-	if err != nil {
-		fmt.Println("no value found")
-	}
-
-	fmt.Println("dound !!!!!!!!!!!!", val)
 }
 
 func m2ain() {

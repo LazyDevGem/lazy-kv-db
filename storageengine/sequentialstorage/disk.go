@@ -187,7 +187,7 @@ func getNextOffset(val int) {
 // TODO: to handle concurrency and durability
 func (d *disk) Set(p *page) error {
 	fmt.Println("vmem page offset", d.vmem.currentOffsetInPages, "vmem byte offset", d.vmem.currentOffsetInBytes, "vmem total size in pages", d.vmem.sizeInPages, "vmem total size in bytes", d.vmem.sizeInByteCount, "file total size pages", d.fileDetails.totalPages, "file total size bytes", d.fileDetails.totalBytes, "currentoffset index", d.vmem.currentIndexOffset, d.vmem.currentIncreaseIndex)
-	_, err := d.Get(string(p.key))
+	_, _, _, err := d.Get(string(p.key))
 	if err != nil {
 		if err.Error() == "no value present" {
 			return errors.New("key already exists")
@@ -236,7 +236,28 @@ func (d *disk) Set(p *page) error {
 	return nil
 }
 
-func (d *disk) Get(input string) (string, error) {
+// TODO: to handle concurrency and durability
+func (d *disk) Del(input string) error {
+	_, idx, startIndex, err := d.Get(input)
+	if err != nil {
+		return err
+	}
+	fmt.Println("deletion index", idx, startIndex)
+	values := d.vmem.data[idx][startIndex : startIndex+PAGE_SIZE]
+	for i, _ := range values {
+		values[i] = '0'
+	}
+
+	err = d.file.Sync()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// TODO: to handle isolation levels
+func (d *disk) Get(input string) (string, int, int, error) {
 	for idx, page := range d.vmem.data {
 		maxSizeOfIndexMap := len(page)
 		for i := 0; i < maxSizeOfIndexMap; i = i + PAGE_SIZE {
@@ -259,9 +280,9 @@ func (d *disk) Get(input string) (string, error) {
 				dataValueIdxEnd := valLenIdxEnd + int(size)
 
 				value := d.vmem.data[idx][dataValueIdxStart:dataValueIdxEnd]
-				return string(value), nil
+				return string(value), idx, i, nil
 			}
 		}
 	}
-	return "", errors.New("no value present")
+	return "", 0, 0, errors.New("no value present")
 }
