@@ -12,28 +12,35 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	//
-	//for i := 0; i < 1; i++ {
+
+	//for i := 0; i < 1000; i++ {
 	//	fmt.Println("set for ", i)
-	//	page := sequentialstorage.NewPage([]byte(fmt.Sprintf("om-%v", i)), []byte(fmt.Sprintf("nama shivayaa - %v", i)))
+	//	page := sequentialstorage.NewPage([]byte(fmt.Sprintf("om4-%v", i)), []byte(fmt.Sprintf("nama shivayaa - %v", i)))
 	//	err = d.Set(page)
 	//	if err != nil {
 	//		panic(err)
 	//	}
 	//}
-
-	val, err := d.Get("om-0")
+	page := sequentialstorage.NewPage([]byte("wow"), []byte(fmt.Sprintf("nama shivayaa - %v", "wow")))
+	err = d.Set(page)
+	val, err := d.Get("wow")
 	if err != nil {
 		fmt.Println("no value found")
 	}
-	fmt.Println(val)
+	fmt.Println("dound !!!!!!!!!!!!", val)
 
-	val, err = d.Get("om-444")
+	val, err = d.Get("om4-0")
+	if err != nil {
+		fmt.Println("no value found")
+	}
+	fmt.Println("dound !!!!!!!!!!!!", val)
+
+	val, err = d.Get("om4-444")
 	if err != nil {
 		fmt.Println("no value found")
 	}
 
-	fmt.Println(val)
+	fmt.Println("dound !!!!!!!!!!!!", val)
 }
 
 func m2ain() {
@@ -84,17 +91,14 @@ func m2ain() {
 	}
 }
 
-func mai2n() {
-	a := make([]byte, 2)
-	b := []byte("asdasd")
-	copy(a, b)
-
-	fmt.Println(a)
-	fmt.Println(b)
-	var c byte
-	c = 'D'
-	a[1] = c
-
-	fmt.Println(a)
-	fmt.Println(b)
-}
+//func main() {
+//
+//	b := []byte("asdasd")
+//	var c []byte
+//
+//	c = append(c, b...)
+//	fmt.Println(string(c[0]))
+//	b[1] = '3'
+//	fmt.Println(string(c[0]))
+//
+//}

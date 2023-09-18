@@ -12,8 +12,9 @@ import (
 
 type Metadata struct {
 	CurrentOffsetInBytes int `json:"current_offset_in_bytes"`
-	CurrentIncreaseIndex int `json:"current_increase_index"`
 	SizeInByteCount      int `json:"size_in_byte_count"`
+	CurrentIncreaseIndex int `json:"current_increase_index"`
+	CurrentIndexOffset   int `json:"current_index_offset"`
 }
 
 type disk struct {
@@ -36,6 +37,7 @@ type mmap struct {
 	currentOffsetInBytes int
 	currentOffsetInPages int
 	currentIncreaseIndex int
+	currentIndexOffset   int
 }
 
 func NewDisk() (*disk, error) {
@@ -45,13 +47,12 @@ func NewDisk() (*disk, error) {
 		if err != nil {
 			return nil, err
 		}
-
 		metafile, err := os.OpenFile("./metadata.json", os.O_RDWR|os.O_CREATE, 777)
 		if err != nil {
 			return nil, err
 		}
 
-		fileMaxLength := 16384
+		fileMaxLength := PAGE_SIZE
 		fd := file.Fd()
 		vmem, err := syscall.Mmap(int(fd), 0, fileMaxLength, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
 		if err != nil {
@@ -75,6 +76,7 @@ func NewDisk() (*disk, error) {
 				currentOffsetInBytes: 0,
 				currentOffsetInPages: 0,
 				currentIncreaseIndex: 0,
+				currentIndexOffset:   0,
 				sizeInPages:          fileMaxLength / (PAGE_SIZE),
 			},
 			fileDetails: FileDetails{
@@ -83,7 +85,6 @@ func NewDisk() (*disk, error) {
 			},
 		}, nil
 	} else {
-		fmt.Println("hi")
 		file, err := os.OpenFile("./data.txt", os.O_RDWR|os.O_CREATE, 777)
 		if err != nil {
 			return nil, err
@@ -117,7 +118,6 @@ func NewDisk() (*disk, error) {
 		var chunk [][]byte
 		freeChunk := vmem
 		chunk = append(chunk, vmem)
-		fmt.Println("size of freechunk", len(freeChunk), "size of metadataa", metadata.SizeInByteCount)
 		return &disk{
 			fd:       int(fd),
 			file:     file,
@@ -128,7 +128,8 @@ func NewDisk() (*disk, error) {
 				freeData:             freeChunk,
 				currentOffsetInBytes: metadata.CurrentOffsetInBytes,
 				currentOffsetInPages: metadata.CurrentOffsetInBytes / PAGE_SIZE,
-				currentIncreaseIndex: metadata.CurrentIncreaseIndex,
+				currentIncreaseIndex: 0,
+				currentIndexOffset:   0,
 				sizeInPages:          metadata.SizeInByteCount / (PAGE_SIZE),
 			},
 			fileDetails: FileDetails{
@@ -149,12 +150,12 @@ func (d *disk) increaseFileSize(totalPages int) error {
 		return nil
 	}
 
-	err = d.file.Truncate(int64(totalPages*PAGE_SIZE*100) * 10)
+	err = d.file.Truncate(int64(totalPages * PAGE_SIZE * 20))
 	if err != nil {
 		return err
 	}
-	d.fileDetails.totalBytes = totalPages * PAGE_SIZE * 10 * 10
-	d.fileDetails.totalPages = totalPages * 10 * 10
+	d.fileDetails.totalBytes = totalPages * PAGE_SIZE * 20
+	d.fileDetails.totalPages = totalPages * 20
 	return nil
 }
 
@@ -163,17 +164,18 @@ func (d *disk) increaseMMAPSize(totalPages int) error {
 	if int(d.vmem.sizeInByteCount/(PAGE_SIZE)) > totalPages {
 		return nil
 	}
+
 	newMem, err := syscall.Mmap(int(d.fd), int64(d.vmem.sizeInByteCount), PAGE_SIZE*10, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
 	if err != nil {
 		return err
 	}
 
 	d.vmem.data = append(d.vmem.data, newMem)
-	
-	d.vmem.freeData = append(d.vmem.freeData, newMem...)
+
 	d.vmem.sizeInByteCount += PAGE_SIZE * 10
 	d.vmem.sizeInPages += 10
 	d.vmem.currentIncreaseIndex += 1
+	d.vmem.currentIndexOffset = 0
 	return nil
 }
 
@@ -184,7 +186,8 @@ func getNextOffset(val int) {
 
 // TODO: to handle concurrency and durability
 func (d *disk) Set(p *page) error {
-	fmt.Println("vmem page offset", d.vmem.currentOffsetInPages, "vmem byte offset", d.vmem.currentOffsetInBytes, "vmem total size in pages", d.vmem.sizeInPages, "vmem total size in bytes", d.vmem.sizeInByteCount, "file total size pages", d.fileDetails.totalPages, "file total size bytes", d.fileDetails.totalBytes)
+	fmt.Println(len(d.vmem.data))
+	fmt.Println("vmem page offset", d.vmem.currentOffsetInPages, "vmem byte offset", d.vmem.currentOffsetInBytes, "vmem total size in pages", d.vmem.sizeInPages, "vmem total size in bytes", d.vmem.sizeInByteCount, "file total size pages", d.fileDetails.totalPages, "file total size bytes", d.fileDetails.totalBytes, "currentoffset index", d.vmem.currentIndexOffset, d.vmem.currentIncreaseIndex)
 	if d.vmem.currentOffsetInPages+1 >= d.fileDetails.totalPages {
 		err := d.increaseFileSize(d.vmem.sizeInPages + 1)
 		if err != nil {
@@ -201,15 +204,17 @@ func (d *disk) Set(p *page) error {
 
 	va := p.Serialise()
 
-	//copy(d.vmem.data[d.vmem.currentIncreaseIndex][d.vmem.currentOffsetInBytes:], va)
-	copy(d.vmem.freeData[d.vmem.currentOffsetInBytes:], va)
+	copy(d.vmem.data[d.vmem.currentIncreaseIndex][d.vmem.currentIndexOffset:], va)
+	//copy(d.vmem.freeData[d.vmem.currentOffsetInBytes:], va)
 	d.vmem.currentOffsetInBytes += PAGE_SIZE
+	d.vmem.currentIndexOffset += PAGE_SIZE
 	d.vmem.currentOffsetInPages += 1
 
 	meta := Metadata{
 		CurrentOffsetInBytes: d.vmem.currentOffsetInBytes,
 		CurrentIncreaseIndex: d.vmem.currentIncreaseIndex,
 		SizeInByteCount:      d.vmem.sizeInByteCount,
+		CurrentIndexOffset:   d.vmem.currentIndexOffset,
 	}
 
 	err := d.file.Sync()
@@ -227,27 +232,30 @@ func (d *disk) Set(p *page) error {
 }
 
 func (d *disk) Get(input string) (string, error) {
-	for i := 0; i < d.vmem.currentOffsetInPages; i++ {
-		lenKeyIdxStart := 16384*i + 100
-		lenKeyIdxEnd := lenKeyIdxStart + 2
-		b := make([]byte, 2)
-		copy(b, d.vmem.freeData[lenKeyIdxStart:lenKeyIdxEnd])
-		size := binary.LittleEndian.Uint16(b)
-		dataKeyIdxStart := lenKeyIdxEnd
-		dataKeyIdxEnd := lenKeyIdxEnd + int(size)
-		key := d.vmem.freeData[dataKeyIdxStart:dataKeyIdxEnd]
-		fmt.Println("key", string(key), dataKeyIdxStart, lenKeyIdxStart, lenKeyIdxEnd)
-		if string(key) == input {
-			valLenIdxStart := 16384*i + 4382
-			valLenIdxEnd := valLenIdxStart + 2
-			c := make([]byte, 2)
-			copy(c, d.vmem.freeData[valLenIdxStart:valLenIdxEnd])
-			size = binary.LittleEndian.Uint16(c)
-			dataValueIdxStart := valLenIdxEnd
-			dataValueIdxEnd := valLenIdxEnd + int(size)
+	for idx, page := range d.vmem.data {
+		maxSizeOfIndexMap := len(page)
+		for i := 0; i < maxSizeOfIndexMap; i = i + PAGE_SIZE {
+			lenKeyIdxStart := i + 100
+			lenKeyIdxEnd := lenKeyIdxStart + 2
+			b := make([]byte, 2)
+			copy(b, d.vmem.data[idx][lenKeyIdxStart:lenKeyIdxEnd])
+			size := binary.LittleEndian.Uint16(b)
+			dataKeyIdxStart := lenKeyIdxEnd
+			dataKeyIdxEnd := lenKeyIdxEnd + int(size)
+			key := d.vmem.data[idx][dataKeyIdxStart:dataKeyIdxEnd]
 
-			value := d.vmem.freeData[dataValueIdxStart:dataValueIdxEnd]
-			return string(value), nil
+			if string(key) == input {
+				valLenIdxStart := i + 4382
+				valLenIdxEnd := valLenIdxStart + 2
+				c := make([]byte, 2)
+				copy(c, d.vmem.data[idx][valLenIdxStart:valLenIdxEnd])
+				size = binary.LittleEndian.Uint16(c)
+				dataValueIdxStart := valLenIdxEnd
+				dataValueIdxEnd := valLenIdxEnd + int(size)
+
+				value := d.vmem.data[idx][dataValueIdxStart:dataValueIdxEnd]
+				return string(value), nil
+			}
 		}
 	}
 	return "", errors.New("no value present")
