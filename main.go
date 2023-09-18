@@ -21,8 +21,7 @@ func main() {
 	//		panic(err)
 	//	}
 	//}
-	page := sequentialstorage.NewPage([]byte("wow"), []byte(fmt.Sprintf("nama shivayaa - %v", "wow")))
-	err = d.Set(page)
+
 	val, err := d.Get("wow")
 	if err != nil {
 		fmt.Println("no value found")

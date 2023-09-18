@@ -186,8 +186,13 @@ func getNextOffset(val int) {
 
 // TODO: to handle concurrency and durability
 func (d *disk) Set(p *page) error {
-	fmt.Println(len(d.vmem.data))
 	fmt.Println("vmem page offset", d.vmem.currentOffsetInPages, "vmem byte offset", d.vmem.currentOffsetInBytes, "vmem total size in pages", d.vmem.sizeInPages, "vmem total size in bytes", d.vmem.sizeInByteCount, "file total size pages", d.fileDetails.totalPages, "file total size bytes", d.fileDetails.totalBytes, "currentoffset index", d.vmem.currentIndexOffset, d.vmem.currentIncreaseIndex)
+	_, err := d.Get(string(p.key))
+	if err != nil {
+		if err.Error() == "no value present" {
+			return errors.New("key already exists")
+		}
+	}
 	if d.vmem.currentOffsetInPages+1 >= d.fileDetails.totalPages {
 		err := d.increaseFileSize(d.vmem.sizeInPages + 1)
 		if err != nil {
@@ -217,7 +222,7 @@ func (d *disk) Set(p *page) error {
 		CurrentIndexOffset:   d.vmem.currentIndexOffset,
 	}
 
-	err := d.file.Sync()
+	err = d.file.Sync()
 	if err != nil {
 		return err
 	}
