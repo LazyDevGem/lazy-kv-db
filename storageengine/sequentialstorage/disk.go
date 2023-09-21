@@ -30,6 +30,7 @@ type FileDetails struct {
 	totalPages int
 	totalBytes int
 }
+
 type mmap struct {
 	data                 [][]byte
 	freeData             []byte
